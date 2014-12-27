@@ -1,0 +1,158 @@
+#!/usr/bin/python
+
+DOCUMENTATION = '''
+---
+module: cinder_volume
+author: @duahcram
+short_description: 
+description:
+version_added: 1.9
+options:
+  display_name:
+    description: 
+      - volume name
+    default: null
+    required: true
+    aliases: []
+  size:
+    description:
+      - volume size
+    default: null
+    required: true
+    aliases: []
+  state:
+    description:
+      - create/delete a volume
+    default: present
+    required: true
+    choices: ['present', 'absent']
+    aliases: []
+  login_username:
+    description:
+      - login username for openstack authorizarion
+    default: null
+    required: true
+    aliases: []
+  login_password:
+    description:
+      - login password for openstack authorization
+    default: null
+    required: true
+    aliases: []
+  tenant:
+    description:
+      - tenant for openstack authorization
+    default: null
+    required: true
+    aliases: []
+  auth_url:
+    description:
+      - url used to get openstack token for cinderclient authorization
+    default: null
+    required: true
+    aliases: []
+  wait_for:
+    description:
+      - time for waiting after action
+    default: 15s
+    required: False
+    aliases: []
+
+requirements: [ "python-cinderclient" ]
+'''
+EXAMPLES = '''
+# Basic example provisioning OpenStack volume
+
+cinder_volume: display_name=basic_vl size=4 login_username=open login_password=stack tenant=cinder auth_url="http://openstack.example/v2"
+
+'''
+
+import sys
+import time
+
+try:
+  from cinderclient import client
+except:
+  print "failed=True msg='python-cinderclient required for this module'"
+  sys.exit(1)
+
+# _createcinderconnexion
+def _createcinderconnexion(login_username, login_password, tenant, auth_url):
+    cinder = client.Client(login_username, login_password, tenant, auth_url, service_type="volume")
+    cinder.autenticate()
+    return cinder
+
+# volume exists ?
+def _volumeexists(cinder, name="Ansible_default_volume"):
+  volumes = cinder.volumes.list()
+  for vol in volumes:
+    if vol.display_name == name:
+      return vol
+  return None
+
+# waiting for volume 
+def _waiting_for(cinder, id, wait_for=15):
+  time.sleep(15)
+  return cinder.volumes.get(id)
+
+# create volume
+def _createvolume(cinder, name="Ansible_default_volume", size=1):
+  # volume exists ?
+  vol = _volumeexists(cinder, name)
+  created = False
+  if not vol:
+    vol = cinder.volumes.create(size, display_name=name)
+    created = True
+    vol = _waiting_for(cinder, vol.id)
+  return [vol, created]
+
+# delete volume
+def _deletevolume(cinder, name="Ansible_default_volume"):
+  deleted = False
+  vol = _volumeexists(cinder, name)
+  if vol:
+    cinder.volumes.delete(vol.id)
+    vol = _waiting_for(cinder, vol.id)
+    if vol:
+      raise Exception("Volume suppress Error - id:  %s" % vol.id)
+    deleted = True
+  return deleted
+
+# Main 
+def main():
+
+  module = AnsibleModule(
+    argument_spec = dict(
+      display_name = dict(required=True, type='str'),
+      size=dict(required=True, type='int'),
+      login_username=dict(required=True, type='str'),
+      login_password=dict(required=True, type='str'),
+      tenant=dict(required=True, type='str'),
+      auth_url=dict(required=True, type='str'),
+      state=dict(default("present", choices=['present', 'absent']))
+      wait_for=dict(default=15, type='int')
+    ), 
+    support_check_module=True
+  )
+  
+  cinder = None
+  try:
+    cinder = _createcinderconnexion(module.params['login_username'], module.params['login_password'], module.params['tenant'], module.params['auth_url'])
+  except Exception as e:
+    module.fail_json(name="Autentificate error", msg="Autenticate error")
+
+  if module.params['state'] == 'present':
+    vol, created = _createvolume(cinder, module.params['display_name'], module.params['size'])
+    if not vol:
+      module.fail_json(msg="Volume creation error")
+    module.exit_json(changed=created, msg="Volume %s (id: %s) exists" % (vol.display_name, vol.id))
+  elif module.params['state'] == 'absent':
+    try:
+      deleted = _deletevolume(cinder, module.params['display_name'])
+    except Exception as e:
+      module.fail_json(msg="volume deletion error")
+    module.exit_json(changed=deleted, msg="Volume %s deleted" % module.params['display_name'])
+
+# import module snippets
+from ansible.module_utils.basic import *
+main()
