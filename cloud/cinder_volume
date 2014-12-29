@@ -145,7 +145,7 @@ def main():
     vol, created = _createvolume(cinder, module.params['display_name'], module.params['size'])
     if not vol:
       module.fail_json(msg="Volume creation error")
-    module.exit_json(changed=created, msg="Volume %s (id: %s) exists" % (vol.display_name, vol.id))
+    module.exit_json(changed=created, msg="Volume %s (id: %s) exists" % (vol.display_name, vol.id), info=vol)
   elif module.params['state'] == 'absent':
     try:
       deleted = _deletevolume(cinder, module.params['display_name'])
